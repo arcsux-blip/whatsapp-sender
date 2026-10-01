@@ -1,17 +1,17 @@
-# whatsapp-sender
+# whatsapp-sender v2
 
-Primeiro teste para conectar um número do WhatsApp Business via WhatsApp Web e enviar uma mensagem para um grupo.
+Versão para Render usando `@sparticuz/chromium`.
 
-## Render
+Render:
 - Runtime: Node
-- Build command: `npm install`
-- Start command: `npm start`
-- Variável obrigatória: `SENDER_TOKEN` com um valor longo e secreto.
+- Build Command: `npm install`
+- Start Command: `npm start`
+- Variável: `SENDER_TOKEN`
 
-Depois do deploy, abra:
+Depois do deploy:
+`https://whatsapp-sender-3no1.onrender.com/?token=SEU_TOKEN`
 
-`https://SEU-SERVICO.onrender.com/?token=SEU_TOKEN`
+No WhatsApp Business:
+Configurações → Dispositivos conectados → Conectar um dispositivo
 
-Escaneie o QR Code pelo WhatsApp Business em **Dispositivos conectados**.
-
-> Esta primeira versão usa armazenamento local da sessão. Em reinícios/redeploys pode ser necessário escanear o QR novamente. Depois do teste inicial, adicionaremos persistência.
+Observação: nesta versão a sessão ainda fica no disco local do Render. Após o primeiro teste, vamos persistir a sessão.

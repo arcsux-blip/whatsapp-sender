@@ -1,8 +1,8 @@
 {
   "name": "whatsapp-sender",
-  "version": "4.0.0",
+  "version": "5.0.0",
   "private": true,
-  "description": "Sender de WhatsApp para Render com timeout ampliado e carregamento assíncrono de grupos",
+  "description": "Sender WhatsApp com interface desacoplada do Chromium",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

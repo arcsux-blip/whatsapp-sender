@@ -55,15 +55,6 @@ function withTimeout(promise, ms, label='operação') {
   ]);
 }
 
-async function getActualState() {
-  if (!client) return null;
-  try {
-    return await withTimeout(client.getState(), 10000, 'getState');
-  } catch (_) {
-    return null;
-  }
-}
-
 async function initWhatsApp() {
   try {
     mark('preparando_chromium', { status: 'preparando_chromium' });
@@ -116,21 +107,19 @@ async function initWhatsApp() {
     });
 
     client.on('loading_screen', (percent, message) => {
+      state.loadingPercent = percent;
+      state.loadingMessage = message || null;
+      if (!state.ready) state.status = 'carregando_whatsapp';
       mark('loading_screen', {
         loadingPercent: percent,
-        loadingMessage: message || null
+        loadingMessage: message || null,
+        status: state.status
       });
-
-      if (!state.ready) {
-        state.status = 'carregando_whatsapp';
-      }
     });
 
     client.on('change_state', (newState) => {
       state.whatsappState = String(newState);
-      if (!state.ready) {
-        state.status = `estado_${String(newState).toLowerCase()}`;
-      }
+      if (!state.ready) state.status = `estado_${String(newState).toLowerCase()}`;
       mark('change_state', {
         whatsappState: String(newState),
         status: state.status
@@ -138,6 +127,7 @@ async function initWhatsApp() {
     });
 
     client.on('ready', () => {
+      state.me = client.info?.wid?._serialized || null;
       mark('ready', {
         ready: true,
         authenticated: true,
@@ -146,8 +136,6 @@ async function initWhatsApp() {
         lastError: null,
         whatsappState: 'READY'
       });
-
-      state.me = client.info?.wid?._serialized || null;
       console.log('WhatsApp pronto.');
     });
 
@@ -182,9 +170,7 @@ async function initWhatsApp() {
   }
 }
 
-app.get('/health', async (req, res) => {
-  const actualState = await getActualState();
-
+app.get('/health', (req, res) => {
   res.json({
     ok: true,
     whatsapp_ready: state.ready,
@@ -193,7 +179,6 @@ app.get('/health', async (req, res) => {
     browser_ready: Boolean(state.browserPath),
     last_event: state.lastEvent,
     whatsapp_state: state.whatsappState,
-    actual_client_state: actualState,
     loading_percent: state.loadingPercent,
     loading_message: state.loadingMessage,
     last_error: state.lastError
@@ -224,13 +209,12 @@ app.get('/groups', async (req, res) => {
   }
 });
 
-app.get('/', async (req, res) => {
+app.get('/', (req, res) => {
   if (!tokenOk(req)) {
     return res.status(401).send('Token inválido. Use ?token=SEU_TOKEN');
   }
 
   const token = req.query.token;
-  const actualState = await getActualState();
 
   res.send(`<!doctype html>
 <html lang="pt-BR">
@@ -264,7 +248,6 @@ td:first-child{font-weight:bold;width:180px}
     <tr><td>Pronto</td><td>${state.ready ? 'sim' : 'não'}</td></tr>
     <tr><td>Chromium</td><td>${state.browserPath ? 'OK' : 'não'}</td></tr>
     <tr><td>Estado WhatsApp</td><td>${esc(state.whatsappState || '-')}</td></tr>
-    <tr><td>Estado real do cliente</td><td>${esc(actualState || '-')}</td></tr>
     <tr><td>Carregamento</td><td>${state.loadingPercent !== null ? esc(state.loadingPercent) + '%' : '-'}</td></tr>
     <tr><td>Mensagem</td><td>${esc(state.loadingMessage || '-')}</td></tr>
     ${state.me ? `<tr><td>Número conectado</td><td><code>${esc(state.me)}</code></td></tr>` : ''}
@@ -283,32 +266,49 @@ ${state.qrDataUrl && !state.authenticated ? `
 ${state.authenticated && !state.ready ? `
 <div class="card">
   <h2>WhatsApp autenticado</h2>
-  <p>O QR já foi aceito. Aguarde a inicialização terminar.</p>
+  <p>O QR foi aceito. Aguarde até o status ficar <b>pronto</b>.</p>
 </div>
 ` : ''}
 
 ${state.ready ? `
 <div class="card">
   <h2>Enviar mensagem de teste</h2>
-  <form method="post" action="/send-test">
-    <input type="hidden" name="token" value="${esc(token)}">
-    <label>Escolha o grupo:</label>
-    <select id="groupId" name="groupId" required disabled>
-      <option>Carregando grupos...</option>
-    </select>
-    <div id="groups-status">Buscando grupos sem travar a página...</div>
-    <button id="sendBtn" type="submit" disabled>Enviar “teste do bot”</button>
-  </form>
+
+  <button id="loadGroupsBtn" type="button">Carregar grupos</button>
+
+  <div id="groupsArea" style="display:none;margin-top:12px">
+    <form method="post" action="/send-test">
+      <input type="hidden" name="token" value="${esc(token)}">
+      <label>Escolha o grupo:</label>
+      <select id="groupId" name="groupId" required></select>
+      <button id="sendBtn" type="submit">Enviar “teste do bot”</button>
+    </form>
+  </div>
+
+  <div id="groups-status"></div>
 </div>
 
 <script>
-(async function() {
-  const select = document.getElementById('groupId');
-  const sendBtn = document.getElementById('sendBtn');
+document.getElementById('loadGroupsBtn').addEventListener('click', async function() {
+  const btn = this;
   const status = document.getElementById('groups-status');
+  const area = document.getElementById('groupsArea');
+  const select = document.getElementById('groupId');
+
+  btn.disabled = true;
+  status.textContent = 'Carregando grupos...';
 
   try {
-    const r = await fetch('/groups?token=${encodeURIComponent(token)}', { cache: 'no-store' });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 35000);
+
+    const r = await fetch('/groups?token=${encodeURIComponent(token)}', {
+      cache: 'no-store',
+      signal: controller.signal
+    });
+
+    clearTimeout(timer);
+
     const data = await r.json();
 
     if (!r.ok || !data.ok) throw new Error(data.error || 'Erro ao carregar grupos.');
@@ -316,8 +316,8 @@ ${state.ready ? `
     select.innerHTML = '';
 
     if (!data.groups.length) {
-      select.innerHTML = '<option>Nenhum grupo encontrado</option>';
       status.textContent = 'Nenhum grupo encontrado.';
+      btn.disabled = false;
       return;
     }
 
@@ -328,14 +328,16 @@ ${state.ready ? `
       select.appendChild(opt);
     }
 
-    select.disabled = false;
-    sendBtn.disabled = false;
+    area.style.display = 'block';
     status.textContent = data.groups.length + ' grupo(s) carregado(s).';
+    btn.textContent = 'Recarregar grupos';
+    btn.disabled = false;
+
   } catch (e) {
-    select.innerHTML = '<option>Falha ao carregar grupos</option>';
-    status.textContent = 'Erro: ' + e.message;
+    status.textContent = 'Erro: ' + (e.name === 'AbortError' ? 'tempo esgotado ao carregar grupos' : e.message);
+    btn.disabled = false;
   }
-})();
+});
 </script>
 ` : ''}
 

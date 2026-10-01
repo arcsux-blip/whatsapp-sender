@@ -1,12 +1,12 @@
-# whatsapp-sender v4
+# whatsapp-sender v5
 
 Mudanças principais:
-- `protocolTimeout` do Puppeteer aumentado para 300 segundos;
-- página principal não chama mais `getChats()` diretamente;
-- grupos carregam via `/groups` em segundo plano;
-- `/groups` tem timeout próprio de 30 segundos;
-- `/send-test` também tem timeouts de proteção;
-- diagnóstico `/health` continua disponível.
+- `/health` não consulta mais o Chromium;
+- página principal não consulta mais o Chromium;
+- a interface abre imediatamente usando apenas o estado salvo em memória;
+- grupos só são carregados quando o usuário clica em `Carregar grupos`;
+- carregamento de grupos continua protegido por timeout;
+- `protocolTimeout` do Puppeteer permanece em 300 segundos.
 
 Render:
 - Runtime: Node

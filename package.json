@@ -1,8 +1,8 @@
 {
   "name": "whatsapp-sender",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "private": true,
-  "description": "Sender de WhatsApp para Render com diagnóstico detalhado de sessão",
+  "description": "Sender de WhatsApp para Render com timeout ampliado e carregamento assíncrono de grupos",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

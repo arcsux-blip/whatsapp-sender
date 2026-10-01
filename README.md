@@ -1,13 +1,12 @@
-# whatsapp-sender v3
+# whatsapp-sender v4
 
-Versão com diagnóstico detalhado dos eventos do WhatsApp Web.
-
-Principais mudanças:
-- remove o QR da tela assim que autentica;
-- registra `loading_screen`;
-- registra `change_state`;
-- registra `ready`;
-- `/health` mostra estado real do cliente.
+Mudanças principais:
+- `protocolTimeout` do Puppeteer aumentado para 300 segundos;
+- página principal não chama mais `getChats()` diretamente;
+- grupos carregam via `/groups` em segundo plano;
+- `/groups` tem timeout próprio de 30 segundos;
+- `/send-test` também tem timeouts de proteção;
+- diagnóstico `/health` continua disponível.
 
 Render:
 - Runtime: Node
@@ -15,5 +14,5 @@ Render:
 - Start Command: `npm start`
 - Variável: `SENDER_TOKEN`
 
-URL:
+URL principal:
 `https://whatsapp-sender-3no1.onrender.com/?token=SEU_TOKEN`

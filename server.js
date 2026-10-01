@@ -5,6 +5,7 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 
 const app = express();
 app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 const SENDER_TOKEN = process.env.SENDER_TOKEN || '';
@@ -45,6 +46,24 @@ function mark(eventName, extra = {}) {
   console.log(`[EVENT] ${eventName}`, extra);
 }
 
+function withTimeout(promise, ms, label='operação') {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} excedeu ${ms} ms`)), ms)
+    )
+  ]);
+}
+
+async function getActualState() {
+  if (!client) return null;
+  try {
+    return await withTimeout(client.getState(), 10000, 'getState');
+  } catch (_) {
+    return null;
+  }
+}
+
 async function initWhatsApp() {
   try {
     mark('preparando_chromium', { status: 'preparando_chromium' });
@@ -61,6 +80,7 @@ async function initWhatsApp() {
       puppeteer: {
         executablePath,
         headless: true,
+        protocolTimeout: 300000,
         args: [
           ...chromium.args,
           '--no-sandbox',
@@ -97,16 +117,23 @@ async function initWhatsApp() {
 
     client.on('loading_screen', (percent, message) => {
       mark('loading_screen', {
-        status: 'carregando_whatsapp',
         loadingPercent: percent,
         loadingMessage: message || null
       });
+
+      if (!state.ready) {
+        state.status = 'carregando_whatsapp';
+      }
     });
 
     client.on('change_state', (newState) => {
+      state.whatsappState = String(newState);
+      if (!state.ready) {
+        state.status = `estado_${String(newState).toLowerCase()}`;
+      }
       mark('change_state', {
         whatsappState: String(newState),
-        status: state.ready ? 'pronto' : `estado_${String(newState).toLowerCase()}`
+        status: state.status
       });
     });
 
@@ -156,13 +183,7 @@ async function initWhatsApp() {
 }
 
 app.get('/health', async (req, res) => {
-  let actualState = null;
-
-  if (client) {
-    try {
-      actualState = await client.getState();
-    } catch (_) {}
-  }
+  const actualState = await getActualState();
 
   res.json({
     ok: true,
@@ -179,39 +200,37 @@ app.get('/health', async (req, res) => {
   });
 });
 
+app.get('/groups', async (req, res) => {
+  if (!tokenOk(req)) return res.status(401).json({ ok:false, error:'Token inválido.' });
+  if (!state.ready || !client) {
+    return res.status(503).json({ ok:false, error:'WhatsApp ainda não está pronto.' });
+  }
+
+  try {
+    const chats = await withTimeout(client.getChats(), 30000, 'carregamento dos grupos');
+
+    const groups = chats
+      .filter(c => c.isGroup)
+      .map(c => ({
+        id: c.id._serialized,
+        name: c.name
+      }))
+      .sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+
+    return res.json({ ok:true, groups });
+  } catch (err) {
+    console.error('Erro em /groups:', err);
+    return res.status(500).json({ ok:false, error:String(err) });
+  }
+});
+
 app.get('/', async (req, res) => {
   if (!tokenOk(req)) {
     return res.status(401).send('Token inválido. Use ?token=SEU_TOKEN');
   }
 
-  let groups = [];
-  let actualState = null;
-
-  if (client) {
-    try {
-      actualState = await client.getState();
-    } catch (_) {}
-  }
-
-  if (state.ready && client) {
-    try {
-      const chats = await client.getChats();
-      groups = chats
-        .filter(c => c.isGroup)
-        .map(c => ({
-          id: c.id._serialized,
-          name: c.name
-        }))
-        .sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-    } catch (e) {
-      state.lastError = String(e);
-    }
-  }
-
   const token = req.query.token;
-  const opts = groups.map(g =>
-    `<option value="${esc(g.id)}">${esc(g.name)} — ${esc(g.id)}</option>`
-  ).join('');
+  const actualState = await getActualState();
 
   res.send(`<!doctype html>
 <html lang="pt-BR">
@@ -230,6 +249,7 @@ code{word-break:break-all}
 table{border-collapse:collapse;width:100%}
 td{padding:6px;border-bottom:1px solid #eee;vertical-align:top}
 td:first-child{font-weight:bold;width:180px}
+#groups-status{margin-top:10px}
 </style>
 </head>
 <body>
@@ -249,13 +269,12 @@ td:first-child{font-weight:bold;width:180px}
     <tr><td>Mensagem</td><td>${esc(state.loadingMessage || '-')}</td></tr>
     ${state.me ? `<tr><td>Número conectado</td><td><code>${esc(state.me)}</code></td></tr>` : ''}
   </table>
-
   ${state.lastError ? `<p class="err"><b>Erro:</b> ${esc(state.lastError)}</p>` : ''}
 </div>
 
 ${state.qrDataUrl && !state.authenticated ? `
 <div class="card">
-  <h2>1. Escaneie o QR Code</h2>
+  <h2>Escaneie o QR Code</h2>
   <p>No WhatsApp Business: <b>Configurações → Dispositivos conectados → Conectar um dispositivo</b>.</p>
   <img src="${state.qrDataUrl}" alt="QR Code">
 </div>
@@ -264,26 +283,60 @@ ${state.qrDataUrl && !state.authenticated ? `
 ${state.authenticated && !state.ready ? `
 <div class="card">
   <h2>WhatsApp autenticado</h2>
-  <p>O QR já foi aceito. Agora estamos aguardando o WhatsApp Web concluir a inicialização.</p>
-  <p>Atualize esta página em alguns segundos para acompanhar o estado.</p>
+  <p>O QR já foi aceito. Aguarde a inicialização terminar.</p>
 </div>
 ` : ''}
 
 ${state.ready ? `
 <div class="card">
   <h2>Enviar mensagem de teste</h2>
-
-  ${groups.length ? `
   <form method="post" action="/send-test">
     <input type="hidden" name="token" value="${esc(token)}">
     <label>Escolha o grupo:</label>
-    <select name="groupId" required>${opts}</select>
-    <button type="submit">Enviar “teste do bot”</button>
+    <select id="groupId" name="groupId" required disabled>
+      <option>Carregando grupos...</option>
+    </select>
+    <div id="groups-status">Buscando grupos sem travar a página...</div>
+    <button id="sendBtn" type="submit" disabled>Enviar “teste do bot”</button>
   </form>
-  ` : `
-  <p>Nenhum grupo apareceu ainda. Abra o grupo no celular, envie uma mensagem e atualize esta página.</p>
-  `}
 </div>
+
+<script>
+(async function() {
+  const select = document.getElementById('groupId');
+  const sendBtn = document.getElementById('sendBtn');
+  const status = document.getElementById('groups-status');
+
+  try {
+    const r = await fetch('/groups?token=${encodeURIComponent(token)}', { cache: 'no-store' });
+    const data = await r.json();
+
+    if (!r.ok || !data.ok) throw new Error(data.error || 'Erro ao carregar grupos.');
+
+    select.innerHTML = '';
+
+    if (!data.groups.length) {
+      select.innerHTML = '<option>Nenhum grupo encontrado</option>';
+      status.textContent = 'Nenhum grupo encontrado.';
+      return;
+    }
+
+    for (const g of data.groups) {
+      const opt = document.createElement('option');
+      opt.value = g.id;
+      opt.textContent = g.name + ' — ' + g.id;
+      select.appendChild(opt);
+    }
+
+    select.disabled = false;
+    sendBtn.disabled = false;
+    status.textContent = data.groups.length + ' grupo(s) carregado(s).';
+  } catch (e) {
+    select.innerHTML = '<option>Falha ao carregar grupos</option>';
+    status.textContent = 'Erro: ' + e.message;
+  }
+})();
+</script>
 ` : ''}
 
 <p><a href="/?token=${encodeURIComponent(token)}">Atualizar página</a></p>
@@ -303,13 +356,13 @@ app.post('/send-test', async (req, res) => {
   }
 
   try {
-    const chat = await client.getChatById(groupId);
+    const chat = await withTimeout(client.getChatById(groupId), 30000, 'busca do grupo');
 
     if (!chat || !chat.isGroup) {
       return res.status(400).send('O ID informado não é de um grupo.');
     }
 
-    await client.sendMessage(groupId, 'teste do bot');
+    await withTimeout(client.sendMessage(groupId, 'teste do bot'), 30000, 'envio da mensagem');
 
     res.send(`<html><meta charset="utf-8"><body style="font-family:Arial;max-width:700px;margin:40px auto;padding:0 16px">
       <h1>Mensagem enviada ✅</h1>
@@ -317,8 +370,13 @@ app.post('/send-test', async (req, res) => {
       <p><a href="/?token=${encodeURIComponent(req.body.token)}">Voltar</a></p>
     </body></html>`);
   } catch (err) {
+    console.error('Erro em /send-test:', err);
     res.status(500).send(`Erro ao enviar: ${esc(String(err))}`);
   }
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('UNHANDLED_REJECTION:', reason);
 });
 
 app.listen(PORT, '0.0.0.0', () => {

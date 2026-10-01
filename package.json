@@ -5,6 +5,7 @@
   "description": "Sender de teste para grupo do WhatsApp usando whatsapp-web.js",
   "main": "server.js",
   "scripts": {
+    "postinstall": "npx puppeteer browsers install chrome",
     "start": "node server.js"
   },
   "engines": {
@@ -12,6 +13,7 @@
   },
   "dependencies": {
     "express": "^4.21.2",
+    "puppeteer": "^24.16.0",
     "qrcode": "^1.5.4",
     "whatsapp-web.js": "^1.34.1"
   }

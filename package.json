@@ -1,8 +1,8 @@
 {
   "name": "whatsapp-sender",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
-  "description": "Sender de WhatsApp para Render usando Chromium empacotado",
+  "description": "Sender de WhatsApp para Render com diagnóstico detalhado de sessão",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

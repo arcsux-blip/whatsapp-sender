@@ -1,6 +1,13 @@
-# whatsapp-sender v2
+# whatsapp-sender v3
 
-Versão para Render usando `@sparticuz/chromium`.
+Versão com diagnóstico detalhado dos eventos do WhatsApp Web.
+
+Principais mudanças:
+- remove o QR da tela assim que autentica;
+- registra `loading_screen`;
+- registra `change_state`;
+- registra `ready`;
+- `/health` mostra estado real do cliente.
 
 Render:
 - Runtime: Node
@@ -8,10 +15,5 @@ Render:
 - Start Command: `npm start`
 - Variável: `SENDER_TOKEN`
 
-Depois do deploy:
+URL:
 `https://whatsapp-sender-3no1.onrender.com/?token=SEU_TOKEN`
-
-No WhatsApp Business:
-Configurações → Dispositivos conectados → Conectar um dispositivo
-
-Observação: nesta versão a sessão ainda fica no disco local do Render. Após o primeiro teste, vamos persistir a sessão.
